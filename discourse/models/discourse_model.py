@@ -47,6 +47,8 @@ class DiscourseClassifier(Model):
         encoded_sentence = self.sentence_encoder(embedded_sentence, sentence_mask)
 
         logits = self.classifier_feedforward(encoded_sentence)
+        # ('Linear shape:', logits.shape)
+        # print('Label shape:', label.squeeze(-1).shape)
 
         output_dict = {'logits': logits}
         if label is not None:

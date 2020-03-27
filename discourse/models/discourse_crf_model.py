@@ -54,13 +54,27 @@ class DiscourseCrfClassifier(Model):
     def forward(self,
                 sentences: Dict[str, torch.LongTensor],
                 labels: torch.LongTensor = None) -> Dict[str, torch.Tensor]:
-        
-        # print(sentences['tokens'].size())
-        # print(labels.size())
+    
+        # # Bert settings
+        # if 'bert' not in sentences:
+        #     sentences['bert'] = sentences['tokens']
+        # if 'bert-offsets' not in sentences:
+        #     sentences['bert-offsets'] = sentences['tokens']
+
+        # print('Sentences:', sentences)
+        # print('Sentence tokens size:', sentences['tokens'].size())
+        # print('Labels:', labels)
+
+        self.sentence_encoder._module.flatten_parameters()
 
         embedded_sentences = self.text_field_embedder(sentences)
         token_masks = util.get_text_field_mask(sentences, 1)
+        # bert_sentences = {'bert': sentences['bert']} # Bert configuration
+        # sentence_masks = util.get_text_field_mask(bert_sentences) # Bert configuration
         sentence_masks = util.get_text_field_mask(sentences)
+        # print('Sentences:', sentences)
+        # print('Sentence masks:', sentence_masks)
+        # print('Sentence masks size:', sentence_masks.size())
 
         # get sentence embedding
         encoded_sentences = []
@@ -73,10 +87,11 @@ class DiscourseCrfClassifier(Model):
         if self.dropout:
             encoded_sentences = self.dropout(encoded_sentences)
 
-        # print(encoded_sentences.size()) # size: (n_batch, n_sents, n_embedding)
+        # print('Encoded sentences size:', encoded_sentences.size()) # size: (n_batch, n_sents, n_embedding)
 
         # CRF prediction
         logits = self.label_projection_layer(encoded_sentences) # size: (n_batch, n_sents, n_classes)
+        # print('Logits size:', logits.size())
         best_paths = self.crf.viterbi_tags(logits, sentence_masks)
         predicted_labels = [x for x, y in best_paths]
 
@@ -89,6 +104,8 @@ class DiscourseCrfClassifier(Model):
         # referring to https://github.com/allenai/allennlp/blob/master/allennlp/models/crf_tagger.py#L229-L239
         if labels is not None:
             log_likelihood = self.crf(logits, labels, sentence_masks)
+            # print('Linear shape:', logits.shape)
+            # print('Labels shape:', labels.shape)
             output_dict["loss"] = -log_likelihood
 
             class_probabilities = logits * 0.
@@ -97,6 +114,8 @@ class DiscourseCrfClassifier(Model):
                     class_probabilities[i, j, label_id] = 1
 
             for metric in self.metrics.values():
+                # print('Class probablities shape:', class_probabilities.shape)
+                # print('Labels shape:', labels.shape)
                 metric(class_probabilities, labels, sentence_masks.float())
 
         return output_dict

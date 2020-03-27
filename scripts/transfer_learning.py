@@ -3,6 +3,8 @@ Transfer learning for claim prediction using Discourse model
 """
 import sys
 sys.path.insert(0, '..')
+sys.path.insert(0, '/Users/kchu/Documents/Projects/Senior Project/Claim Extraction/detecting-scientific-claim-master/')
+
 from typing import Iterator, List, Dict, Optional
 import numpy as np
 import pandas as pd
@@ -38,8 +40,9 @@ from allennlp.training.learning_rate_schedulers import LearningRateScheduler
 
 
 
-EMBEDDING_DIM = 300
-DISCOURSE_MODEL_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/model.tar.gz'
+EMBEDDING_DIM = 100
+# DISCOURSE_MODEL_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/model.tar.gz'
+DISCOURSE_MODEL_PATH = './output_pubmed_rct/model.tar.gz'
 TRAIN_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/train_labels.csv'
 VALIDATION_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/validation_labels.csv'
 archive = load_archive(DISCOURSE_MODEL_PATH)
@@ -74,6 +77,8 @@ if __name__ == '__main__':
         param.requires_grad = False
     model.classifier_feedforward._linear_layers = ModuleList([torch.nn.Linear(2 * EMBEDDING_DIM, EMBEDDING_DIM), 
                                                               torch.nn.Linear(EMBEDDING_DIM, 2)])
+    model.loss = torch.nn.CrossEntropyLoss()
+    
     vocab = predictor._model.vocab
     vocab._token_to_index['labels'] = {'0': 0, '1': 1}
     # freeze all layers except top layer
@@ -95,7 +100,7 @@ if __name__ == '__main__':
         train_dataset=train_dataset,
         validation_dataset=validation_dataset,
         patience=5,
-        num_epochs=100, 
+        num_epochs=0, 
         cuda_device=-1
     )
     trainer.train()
@@ -109,7 +114,7 @@ if __name__ == '__main__':
         train_dataset=train_dataset,
         validation_dataset=validation_dataset,
         patience=5,
-        num_epochs=200, 
+        num_epochs=0, 
         cuda_device=-1
     )
     for param in list(model.parameters())[1:]:
@@ -121,10 +126,26 @@ if __name__ == '__main__':
     validation_df['class_probabilities'] = validation_df.sentence.map(lambda x: claim_predictor.predict_json({'sentence': x})['class_probabilities'])
     validation_df['predicted_label'] = validation_df.class_probabilities.map(lambda x: np.argmax(x))
     y_true, y_pred = validation_df.label.astype(int).values, validation_df.predicted_label.astype(int).values
-    print(precision_recall_fscore_support(y_true, y_pred, average='binary'))
+    print('Validation score:', precision_recall_fscore_support(y_true, y_pred, average='binary'))
 
     # see the optimal threshold for validation set
     p_claim = np.vstack(validation_df.class_probabilities.map(np.array).values)
     for threshold in np.arange(0.25, 0.7, 0.02):
         y_pred = (p_claim[:, 1] >= threshold)
         print('Threshold = {}, F1-score = {}'.format(threshold, f1_score(y_true, y_pred)))
+
+    # precision, recall, f-score on test set
+    # test_list = pd.read_csv(cached_path(TEST_PATH))
+    # claim_predictor = ClaimCrfPredictor(model, dataset_reader=reader)
+    # y_pred, y_true = [], []
+    # for tst in test_list:
+    #     pred = claim_predictor.predict_json(tst)
+    #     logits = torch.FloatTensor(pred['logits'])
+    #     best_paths = model.crf.viterbi_tags(torch.FloatTensor(pred['logits']).unsqueeze(0), 
+    #                                         torch.LongTensor(pred['mask']).unsqueeze(0))
+    #     predicted_labels = best_paths[0][0]
+    #     y_pred.extend(predicted_labels)
+    #     y_true.extend(tst['labels'])
+    # y_true = np.array(y_true).astype(int)
+    # y_pred = np.array(y_pred).astype(int)
+    # print('Test score:', precision_recall_fscore_support(y_true, y_pred, average='binary'))
