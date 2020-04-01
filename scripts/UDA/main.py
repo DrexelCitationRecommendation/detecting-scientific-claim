@@ -1,4 +1,5 @@
 '''TODO
+- Incorporate get_loss to BaselineModel
 - Create unsup batch
 - Change cfg in get_loss function
 - unsup_criterion = nn.KLDivLoss(reduction='none')
@@ -78,6 +79,14 @@ TEST_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/test_labels.json'
 # discourse_predictor = Predictor.from_archive(archive, 'discourse_crf_predictor')
 
 # %%
+'''Temporary configuration'''
+from argparse import Namespace
+
+cfg = Namespace(
+    'tsa' = False,
+)
+
+# %%
 # TSA
 def get_tsa_thresh(schedule, global_step, num_train_steps, start, end):
     training_progress = torch.tensor(float(global_step) / float(num_train_steps))
@@ -130,7 +139,7 @@ def get_loss(model, sup_batch, unsup_batch, global_step):
     if unsup_batch:
         # ori
         with torch.no_grad():
-            ori_logits = = model(ori_input_ids, ori_segment_ids, ori_input_mask)
+            ori_logits = model(ori_input_ids, ori_segment_ids, ori_input_mask)
             ori_prob   = F.softmax(ori_logits, dim=-1)    # KLdiv target
             # ori_log_prob = F.log_softmax(ori_logits, dim=-1)
             
@@ -271,7 +280,7 @@ class BaselineModel(Model):
         self.loss = torch.nn.CrossEntropyLoss()
         initializer(self)
 
-    def get_loss(sup_batch, unsup_batch, global_step):
+    def get_loss(model, sup_batch, unsup_batch, global_step):
         # logits -> prob(softmax) -> log_prob(log_softmax)
 
         # batch
@@ -304,7 +313,7 @@ class BaselineModel(Model):
         if unsup_batch:
             # ori
             with torch.no_grad():
-                ori_logits = = model(ori_input_ids, ori_segment_ids, ori_input_mask)
+                ori_logits = model(ori_input_ids, ori_segment_ids, ori_input_mask)
                 ori_prob   = F.softmax(ori_logits, dim=-1)    # KLdiv target
                 # ori_log_prob = F.log_softmax(ori_logits, dim=-1)
                 
@@ -352,8 +361,11 @@ class BaselineModel(Model):
         encoded_sentence = self.sentence_encoder(embedded_sentence, sentence_mask)
         # print('Encoded sentence:', encoded_sentence.size()) # (batch_size, num_sentences, embedding_size)
 
-        logits = self.classifier_feedforward(encoded_sentence)
-        logits = logits.squeeze(-1) # Added to squeeze 3d to 2d
+        logits = self.classifier_feedforward(encoded_sentence) # (batch_size, num_sentences, num_labels(2))
+        logits = logits.squeeze(-1) # Actually doesnt do anything (batch_size, num_sentences, num_labels)
+
+        # Get loss using get_loss function
+        logits = get_loss(sentences, labels, False, 0)
 
         output_dict = {'logits': logits}
         if labels is not None:

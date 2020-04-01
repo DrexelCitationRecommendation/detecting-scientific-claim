@@ -9,7 +9,7 @@ from torch.autograd import Variable
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.linear = Linear(2, 2)
+        self.linear = Linear(2, 3)
     
     def forward(self, x):
         z = self.linear(x)
@@ -35,7 +35,8 @@ optim = torch.optim.SGD(model.parameters(), lr=0.1)
 # %%
 print('Size:', train_y.shape)
 pred_y = model(train_x)
-# print(pred_y)
+print('Y pred:', pred_y)
+print('Y pred shape:', pred_y.shape)
 print(torch.mean(criterion(pred_y, train_y)))
 
 # %%
@@ -50,8 +51,8 @@ print(torch.mean(criterion(pred_y, train_y)))
 #     optim.step()
 
 # %%
-y_pred = model(train_x)
-print(nn.Softmax()(y_pred))
+# y_pred = model(train_x)
+# print(nn.Softmax()(y_pred))
 
 # %%
 # class LSTMNet(nn.Module):

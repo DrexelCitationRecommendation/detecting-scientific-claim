@@ -171,8 +171,8 @@ class BaselineModel(Model):
         encoded_sentence = self.sentence_encoder(embedded_sentence, sentence_mask)
         # print('Encoded sentence:', encoded_sentence.size()) # (batch_size, num_sentences, embedding_size)
 
-        logits = self.classifier_feedforward(encoded_sentence)
-        logits = logits.squeeze(-1) # Added to squeeze 3d to 2d
+        logits = self.classifier_feedforward(encoded_sentence) # (batch_size, num_sentences, num_labels(2))
+        logits = logits.squeeze(-1) # Actually doesnt do anything (batch_size, num_sentences, num_labels)
 
         output_dict = {'logits': logits}
         if labels is not None:
