@@ -1,5 +1,49 @@
 # %%
 import torch
+
+def torch_device_one():
+    return torch.tensor(1.).to(_get_device())
+
+def _get_device():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return device
+
+device_one = torch_device_one()
+print(device_one)
+
+# %%
+a = torch.ones((8, 10))
+b = torch.ones((8, 1))
+print(a)
+print(b)
+print('a * b', a * b)
+print('sum b', torch.sum(b))
+x = torch.sum(a * b, dim=-1) / torch.max(torch.sum(b, dim=-1), torch_device_one())
+print('x', x)
+print('sum a * b', torch.sum(a * b, dim=-1))
+
+# %%
+a = {
+    'test': [[1, 2]]
+}
+b = {
+    'test': [[2, 3]]
+}
+
+a['test'].extend(b['test'])
+
+# %%
+'''Temporary configuration'''
+from argparse import Namespace
+
+cfg = Namespace(
+    tsa = False,
+)
+
+print(cfg.tsa)
+
+# %%
+import torch
 import torch.nn as nn
 from torch.nn import Linear
 import random

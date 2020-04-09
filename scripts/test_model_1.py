@@ -49,10 +49,14 @@ from allennlp.training.learning_rate_schedulers import LearningRateScheduler
 from allennlp.modules import Seq2VecEncoder, TimeDistributed, TextFieldEmbedder, ConditionalRandomField, FeedForward
 from torch.nn.modules.linear import Linear
 
+# %%
+'''Import custom trainer'''
+from custom_trainer import MyCustomTrainer
 
+# %%
 EMBEDDING_DIM = 300
-TRAIN_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/train_labels.json'
-# TRAIN_PATH = './train_augmented_labels.json'
+# TRAIN_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/train_labels.json'
+TRAIN_PATH = './combined_back_translate_train_labels.json'
 VALIDATION_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/validation_labels.json'
 TEST_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/test_labels.json'
 # DISCOURSE_MODEL_PATH = './output_crf_pubmed_rct_glove/model.tar.gz'
@@ -171,8 +175,8 @@ class BaselineModel(Model):
         encoded_sentence = self.sentence_encoder(embedded_sentence, sentence_mask)
         # print('Encoded sentence:', encoded_sentence.size()) # (batch_size, num_sentences, embedding_size)
 
-        logits = self.classifier_feedforward(encoded_sentence)
-        logits = logits.squeeze(-1) # Added to squeeze 3d to 2d
+        logits = self.classifier_feedforward(encoded_sentence) # (batch_size, num_sentences, num_labels(2))
+        logits = logits.squeeze(-1) # Actually doesnt do anything (batch_size, num_sentences, num_labels)
 
         output_dict = {'logits': logits}
         if labels is not None:
@@ -263,21 +267,21 @@ model = BaselineModel(
 """Basic sanity check"""
 batch = next(iter(iterator(train_dataset)))
 tokens = batch["sentences"]
-print('Tokens:', tokens)
-print('Tokens size:', tokens['tokens'].size())
+# print('Sentences:', tokens)
+# print('Tokens size:', tokens['tokens'].size())
 labels = batch["labels"]
-print('Labels size:', labels.size())
+# print('Labels size:', labels.size())
 
 # %%
 import allennlp.nn.util as util
 
 mask = util.get_text_field_mask(tokens)
-print('Text field mask:', mask)
-print('Text field mask size:', mask.size())
+# print('Text field mask:', mask)
+# print('Text field mask size:', mask.size())
 
 # %%
 embeddings = model.text_field_embedder(tokens)
-print('Embedding size:', embeddings.size())
+# print('Embedding size:', embeddings.size())
 
 # %%
 # state = model.sentence_encoder(embeddings, mask)
@@ -315,7 +319,8 @@ model = model.cuda()
 
 print('Start training')
 
-trainer = Trainer(
+# Custom trainer
+trainer = MyCustomTrainer(
     model=model,
     optimizer=optimizer,
     iterator=iterator,
@@ -326,6 +331,19 @@ trainer = Trainer(
     num_epochs=50,
     cuda_device=[0, 1]
 )
+
+# Default trainer
+# trainer = Trainer(
+#     model=model,
+#     optimizer=optimizer,
+#     iterator=iterator,
+#     validation_iterator=iterator,
+#     train_dataset=train_dataset,
+#     validation_dataset=validation_dataset,
+#     patience=3,
+#     num_epochs=50,
+#     cuda_device=[0, 1]
+# )
 
 # %%
 metrics = trainer.train()

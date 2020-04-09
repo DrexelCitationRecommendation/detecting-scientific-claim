@@ -135,3 +135,5 @@ medline/*
 model.tar.gz
 wiki.en.bin
 labels.json
+scripts/UDA/new_train.txt
+scripts/UDA/train.txt
