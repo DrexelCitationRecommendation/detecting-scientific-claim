@@ -139,7 +139,7 @@ def multiple_target_CrossEntropyLoss(logits, labels):
     loss = 0
     for i in range(logits.shape[0]):
         loss = loss + nn.CrossEntropyLoss(weight=torch.tensor([1.0,1.0]).cuda())(logits[i, :, :], labels[i, :])
-    return loss
+    return loss / logits.shape[0]
 
 # %%
 """Prepare the model"""
@@ -319,21 +319,8 @@ model = model.cuda()
 
 print('Start training')
 
-# Custom trainer
-trainer = MyCustomTrainer(
-    model=model,
-    optimizer=optimizer,
-    iterator=iterator,
-    validation_iterator=iterator,
-    train_dataset=train_dataset,
-    validation_dataset=validation_dataset,
-    patience=3,
-    num_epochs=50,
-    cuda_device=[0, 1]
-)
-
-# Default trainer
-# trainer = Trainer(
+# # Custom trainer
+# trainer = MyCustomTrainer(
 #     model=model,
 #     optimizer=optimizer,
 #     iterator=iterator,
@@ -344,6 +331,19 @@ trainer = MyCustomTrainer(
 #     num_epochs=50,
 #     cuda_device=[0, 1]
 # )
+
+# Default trainer
+trainer = Trainer(
+    model=model,
+    optimizer=optimizer,
+    iterator=iterator,
+    validation_iterator=iterator,
+    train_dataset=train_dataset,
+    validation_dataset=validation_dataset,
+    patience=3,
+    num_epochs=50,
+    cuda_device=[0, 1]
+)
 
 # %%
 metrics = trainer.train()

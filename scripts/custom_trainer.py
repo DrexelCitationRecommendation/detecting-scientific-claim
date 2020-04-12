@@ -59,7 +59,9 @@ class MyCustomTrainer(TrainerBase):
                  should_log_parameter_statistics: bool = True,
                  should_log_learning_rate: bool = False,
                  log_batch_size_period: Optional[int] = None,
-                 moving_average: Optional[MovingAverage] = None) -> None:
+                 moving_average: Optional[MovingAverage] = None,
+                 ori_unsup_dataset = None,
+                 aug_unsup_dataset = None) -> None:
         """
         A trainer for doing supervised learning. It just takes a labeled dataset
         and a ``DataIterator``, and uses the supplied ``Optimizer`` to learn the weights
@@ -183,6 +185,8 @@ class MyCustomTrainer(TrainerBase):
         self.optimizer = optimizer
         self.train_data = train_dataset
         self._validation_data = validation_dataset
+        self.ori_unsup_data = ori_unsup_dataset
+        self.aug_unsup_data = aug_unsup_dataset
 
         if patience is None:  # no early stopping
             if validation_dataset:

@@ -1,5 +1,22 @@
 # %%
 import torch
+import torch.nn as nn
+
+criterion = nn.KLDivLoss(reduction='none')
+a = torch.tensor([0.4724, 0.9769])
+b = torch.tensor([0.4974, 0.9368])
+print(criterion(a, b))
+
+a = torch.tensor([0.4724, 0.9769])
+b = torch.tensor([0.4974, 0.9368])
+print(criterion(a, b))
+
+# %%
+a = [1, 2, 3]
+print(*a)
+
+# %%
+import torch
 
 def torch_device_one():
     return torch.tensor(1.).to(_get_device())
@@ -53,7 +70,7 @@ from torch.autograd import Variable
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.linear = Linear(2, 3)
+        self.linear = Linear(2, 2)
     
     def forward(self, x):
         z = self.linear(x)
@@ -81,18 +98,22 @@ print('Size:', train_y.shape)
 pred_y = model(train_x)
 print('Y pred:', pred_y)
 print('Y pred shape:', pred_y.shape)
-print(torch.mean(criterion(pred_y, train_y)))
+print(criterion(torch.tensor([[0.9469, 0.5334]]), torch.tensor([0])))
+print(criterion(pred_y, train_y))
 
 # %%
-# for epoch in range(1000):
-#     pred_y = model(train_x)
-#     print('Pred y:', pred_y)
+for epoch in range(3):
+    pred_y = model(train_x)
+    print('Pred y:', pred_y)
 
-#     loss = criterion(pred_y, train_y)
+    loss = criterion(pred_y, train_y)
+    print('Loss: ', loss)
+    loss = torch.mean(loss)
+    print('Mean Loss: ', loss)
 
-#     optim.zero_grad()
-#     loss.backward()
-#     optim.step()
+    optim.zero_grad()
+    loss.backward()
+    optim.step()
 
 # %%
 # y_pred = model(train_x)

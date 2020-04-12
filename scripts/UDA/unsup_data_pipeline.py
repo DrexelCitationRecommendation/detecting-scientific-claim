@@ -69,11 +69,15 @@ test_data_path = "test.txt"
 
 # %%
 reader = CrfPubmedRCTReader()
-test_dataset = reader.read(validation_data_path)
+# test_dataset = reader.read(validation_data_path)
+# test_dataset = reader.read(test_data_path)
+test_dataset = reader.read(train_data_path)
 
 # %%
 '''Write to new file'''
-example_file = open('new_dev.txt', 'w')
+# example_file = open('new_dev.txt', 'w')
+# example_file = open('new_test.txt', 'w')
+example_file = open('new_train.txt', 'w')
 
 for data in test_dataset:
     sentences = data['sentences']
