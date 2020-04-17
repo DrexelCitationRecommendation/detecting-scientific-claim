@@ -1,5 +1,7 @@
 '''TODO
-- Incorporate all cfg to get_loss function
+- Add multiple unsupervised per one supervised data
+- Fix MultipleCE function to match tsa 
+- Incorporate all cfg to get_loss function || Done
 - Create a new MergeDatasetReader to yield both sup and unsup data || Done
 - Write a new Trainer to get both sup data and up sup data || Not pursued
 - Incorporate get_loss to BaselineModel
@@ -20,6 +22,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import math
+
+from BERT_optim import BertAdam
 # import models
 # import train
 # from load_data import load_data
@@ -88,7 +93,8 @@ import allennlp.nn.util as util
 EMBEDDING_DIM = 300
 TRAIN_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/train_labels.json'
 # TRAIN_PATH = './train_augmented_labels.json'
-COMBINED_TRAIN_PATH = './combined_sup_train_data_unsup_dev_pubmed_data.json'
+# COMBINED_TRAIN_PATH = './combined_sup_train_data_unsup_dev_pubmed_data.json'
+COMBINED_TRAIN_PATH = './combined_1_6_sup_train_data_unsup_dev_pubmed_data.json'
 VALIDATION_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/validation_labels.json'
 TEST_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/test_labels.json'
 # DISCOURSE_MODEL_PATH = './output_crf_pubmed_rct_glove/model.tar.gz'
@@ -99,16 +105,31 @@ TEST_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/test_labels.json'
 '''Temporary configuration'''
 from argparse import Namespace
 
+global_step = 0
+
 cfg = Namespace(
-    tsa = None,
+    num_epochs = 50,
+    batch_size = 4,
+    unsup_to_sup_ratio = 6,
+
     uda_coeff = 1,
+    tsa = 'linear_schedule',
+    # tsa = None,
+    # uda_softmax_temp = 0.85,
     uda_softmax_temp = 1.,
+    # uda_confidence_thresh = 0.45,
     uda_confidence_thresh = -1,
 )
 
+# Hard code
+dataset_size = 750
+num_train_steps = math.ceil(dataset_size / cfg.batch_size) * cfg.num_epochs
+
 # %%
 # TSA
-def get_tsa_thresh(schedule, global_step, num_train_steps, start, end):
+def get_tsa_thresh(schedule, start, end):
+    global global_step
+    global num_train_steps
     training_progress = torch.tensor(float(global_step) / float(num_train_steps))
     if schedule == 'linear_schedule':
         threshold = training_progress
@@ -123,6 +144,7 @@ def get_tsa_thresh(schedule, global_step, num_train_steps, start, end):
 
 # %%
 unsup_criterion = nn.KLDivLoss(reduction='none')
+# sup_criterion = nn.CrossEntropyLoss(weight=torch.tensor([1.0,1.0]).cuda(), reduction='none')
 sup_criterion = nn.CrossEntropyLoss(reduction='none')
 
 # %%
@@ -266,6 +288,120 @@ class MergeDatasetReader(DatasetReader):
 
         return Instance(fields)
 
+class MergeDatasetReader2(DatasetReader):
+    """
+    Reading annotation dataset in the following JSON format:
+
+    {
+        "paper_id": ..., 
+        "user_id": ...,
+        "sentences": [..., ..., ...],
+        "labels": [..., ..., ...] 
+    }
+    """
+    def __init__(self,
+                 tokenizer: Tokenizer = None,
+                 token_indexers: Dict[str, TokenIndexer] = None,
+                 lazy: bool = False) -> None:
+        super().__init__(lazy)
+        self._tokenizer = tokenizer or WordTokenizer()
+        self._token_indexers = token_indexers or {'tokens': SingleIdTokenIndexer()}
+
+    # @overrides
+    def _read(self, sup_file_path, ori_unsup_file_path = None, aug_unsup_file_path = None):
+        sup_file_path = cached_path(sup_file_path)
+        # ori_unsup_file_path = cached_path(ori_unsup_file_path)
+        # aug_unsup_file_path = cached_path(aug_unsup_file_path)
+
+        sup_file_data = []
+        sup_file_labels = []
+        ori_unsup_file_data = []
+        aug_unsup_file_data = []
+
+        with open(sup_file_path, 'r') as file:
+            for line in file:
+                example = json.loads(line)
+                sents = example['sentences']
+                labels = example['labels']
+                ori_unsup_sents = example['ori_unsup_sentences'] # List
+                aug_unsup_sents = example['aug_unsup_sentences'] # List
+                
+                sup_file_data.append(sents)
+                sup_file_labels.append(labels)
+                ori_unsup_file_data.append(ori_unsup_file_data)
+                aug_unsup_file_data.append(aug_unsup_sents)
+
+                yield self.text_to_instance(sents, labels, ori_unsup_sents, aug_unsup_sents)
+        
+        # with open(sup_file_path, 'r') as file:
+        #     for line in file:
+        #         example = json.loads(line)
+        #         sents = example['sentences']
+        #         labels = example['labels']
+        #         sup_file_data.append(sents)
+        #         sup_file_labels.append(labels)
+                
+        # with open(sup_file_path, 'r') as file:
+        #     for line in file:
+        #         example = json.loads(line)
+        #         sents = example['sentences']
+        #         labels = example['labels']
+        #         sup_file_data.append(sents)
+        #         sup_file_labels.append(labels)
+
+        # for i, data in enumerate(sup_file_data):        
+        #     yield self.text_to_instance(sup_file_data[i], sup_file_labels[i], sup_file_data[i], sup_file_data[i])
+
+    # @overrides
+    def text_to_instance(self,
+                         sup_sents: List[str],
+                         sup_labels: List[str] = None,
+                         ori_unsup_sents = None,
+                         aug_unsup_sents = None) -> Instance:
+        fields: Dict[str, Field] = {}
+        tokenized_sents = [self._tokenizer.tokenize(sent) for sent in sup_sents]
+        sentence_sequence = ListField([TextField(tk, self._token_indexers) for tk in tokenized_sents])
+        fields['sentences'] = sentence_sequence
+        
+        if sup_labels is not None:
+            fields['labels'] = SequenceLabelField(sup_labels, sentence_sequence)
+        
+        ori_name = 'ori_unsup_sentences_'
+        aug_name = 'aug_unsup_sentences_'
+
+        if ori_unsup_sents is not None and aug_unsup_sents is not None:
+            # Create TextField for each in ori_unsup_sentences
+            # ori_unsup_tokenized_sents = [self._tokenizer.tokenize(sent) for sent in ori_unsup_sents]
+            # ori_unsup_sentence_sequence = ListField([TextField(tk, self._token_indexers) for tk in ori_unsup_tokenized_sents])
+            ori_unsup_sentence_sequences = []
+            for ori_unsup_sent in ori_unsup_sents:
+                ori_unsup_tokenized_sent = [self._tokenizer.tokenize(sent) for sent in ori_unsup_sent]
+                ori_unsup_sentence_sequence = ListField([TextField(tk, self._token_indexers) for tk in ori_unsup_tokenized_sent])
+                ori_unsup_sentence_sequences.append(ori_unsup_sentence_sequence)
+
+            # Create TextField for aug_unsup_sentences
+            # aug_unsup_tokenized_sents = [self._tokenizer.tokenize(sent) for sent in aug_unsup_sents]
+            # aug_unsup_sentence_sequence = ListField([TextField(tk, self._token_indexers) for tk in aug_unsup_tokenized_sents])
+
+            aug_unsup_sentence_sequences = []
+            for aug_unsup_sent in aug_unsup_sents:
+                aug_unsup_tokenized_sent = [self._tokenizer.tokenize(sent) for sent in aug_unsup_sent]
+                aug_unsup_sentence_sequence = ListField([TextField(tk, self._token_indexers) for tk in aug_unsup_tokenized_sent])
+                aug_unsup_sentence_sequences.append(aug_unsup_sentence_sequence)
+
+            for i in range(len(ori_unsup_sentence_sequences)):
+                fields[ori_name + str(i)] = ori_unsup_sentence_sequences[i]
+                fields[aug_name + str(i)] = aug_unsup_sentence_sequences[i]
+
+            # This wont work because iterator in AllenNLP requires fields to be ListField to use BERT vocab on
+            # fields['ori_unsup_sentences'] = ori_unsup_sentence_sequences # List
+            # fields['aug_unsup_sentences'] = aug_unsup_sentence_sequences # List
+        # Fake data
+        # fields['ori_unsup_sentences'] = sentence_sequence
+        # fields['aug_unsup_sentences'] = sentence_sequence
+
+        return Instance(fields)
+
 # %%
 token_indexer = PretrainedBertIndexer(
     pretrained_model="./biobert_v1.1_pubmed/vocab.txt",
@@ -277,7 +413,7 @@ reader = ClaimAnnotationReaderJSON(
     token_indexers={"tokens": token_indexer},
     lazy=True
 )
-merge_reader = MergeDatasetReader(
+merge_reader = MergeDatasetReader2(
     token_indexers={"tokens": token_indexer},
     lazy=True
 )
@@ -295,17 +431,26 @@ vocab._token_to_index['labels'] = {'0': 0, '1': 1}
 """Prepare iterator"""
 from allennlp.data.iterators import BasicIterator
 
-iterator = BasicIterator(batch_size=8)
+iterator = BasicIterator(batch_size=cfg.batch_size)
 
 iterator.index_with(vocab)
 
 # %%
+# Old Loss function
+def old_multiple_target_CrossEntropyLoss(logits, labels):
+    loss = 0
+    for i in range(logits.shape[0]): # batch_size
+        loss += nn.CrossEntropyLoss(weight=torch.tensor([1.0,1.0]).cuda())(logits[i, :, :], labels[i, :])
+    return loss / labels[0]
+
 # Loss function
 def multiple_target_CrossEntropyLoss(logits, labels):
-    loss = 0
-    for i in range(logits.shape[0]):
-        loss = loss + nn.CrossEntropyLoss(weight=torch.tensor([1.0,1.0]).cuda())(logits[i, :, :], labels[i, :])
-    return loss / logits.shape[0]
+    losses = []
+    for i in range(logits.shape[0]): # batch_size
+        loss = sup_criterion(logits[i, :, :], labels[i, :])
+        loss = loss.unsqueeze(0)
+        losses.append(loss)
+    return torch.cat(losses)
 
 # %%
 """Prepare the model"""
@@ -330,7 +475,9 @@ class BaselineModel(Model):
         self.loss = torch.nn.CrossEntropyLoss()
         initializer(self)
 
-    def get_loss(self, sup_batch, sup_batch_labels, ori_unsup_input = None, aug_unsup_input = None, global_step = 0):
+    # ori_unsup_input and aug_unsup_input are List
+    def get_loss(self, sup_batch, sup_batch_labels, ori_unsup_input = None, aug_unsup_input = None, global_steps = 0):
+        global global_step
         # logits -> prob(softmax) -> log_prob(log_softmax)
 
         # batch
@@ -341,20 +488,6 @@ class BaselineModel(Model):
         sentences = sup_batch
         label_ids = sup_batch_labels
         # print('Sentence shape:', sentences['tokens'].shape)
-
-        # if unsup_batch:
-        #     # ori_input_ids, ori_segment_ids, ori_input_mask, \
-        #     # aug_input_ids, aug_segment_ids, aug_input_mask  = unsup_batch
-        #     ori_unsup_input, aug_unsup_input = unsup_batch
-
-        #     # input_ids = torch.cat((input_ids, aug_input_ids), dim=0)
-        #     # segment_ids = torch.cat((segment_ids, aug_segment_ids), dim=0)
-        #     # input_mask = torch.cat((input_mask, aug_input_mask), dim=0)
-        #     # sentences['tokens'] = torch.cat((sup_batch['tokens'], aug_unsup_input['tokens']), dim=0)
-        #     # sentences['tokens-offsets'] = torch.cat((sup_batch['tokens-offsets'], aug_unsup_input['tokens-offsets']), dim=0)
-        #     # sentences['tokens-type-ids'] = torch.cat((sup_batch['tokens-type-ids'], aug_unsup_input['tokens-type-ids']), dim=0)
-        #     # sentences['mask'] = torch.cat((sup_batch['mask'], aug_unsup_input['mask']), dim=0)
-        #     # print('New sentence shape:', sentences['tokens'].shape)
 
         # logits
         # logits = model(input_ids, segment_ids, input_mask)
@@ -370,72 +503,97 @@ class BaselineModel(Model):
         
         # sup loss
         sup_size = label_ids.shape[0]            
-        # sup_loss = sup_criterion(logits[:sup_size], label_ids)  # shape : train_batch_size
-        sup_loss = multiple_target_CrossEntropyLoss(logits[:sup_size], label_ids)
+        # sup_loss = sup_criterion(logits[:sup_size], label_ids)  # shape : batch_size
+        # The normal CE loss couldn't work because it needs (batch_size, num_classes) not (batch_size, num_sentences, num_classes) inputs
+        sup_loss = multiple_target_CrossEntropyLoss(logits[:sup_size], label_ids) # shape (batch_size, num_sentences)
 
-        if cfg.tsa: # None for now
-            tsa_thresh = get_tsa_thresh(cfg.tsa, global_step, cfg.total_steps, start=1./logits.shape[-1], end=1)
-            larger_than_threshold = torch.exp(-sup_loss) > tsa_thresh   # prob = exp(log_prob), prob > tsa_threshold
+        if cfg.tsa:
+            tsa_thresh = get_tsa_thresh(cfg.tsa, start=1./logits.shape[-1], end=1) # shape (1)
+            larger_than_threshold = torch.exp(-sup_loss) > tsa_thresh   # prob = exp(log_prob), prob > tsa_threshold # shape (1) -> (batch_size, num_sentences)
             # larger_than_threshold = torch.sum(  F.softmax(pred[:sup_size]) * torch.eye(num_labels)[sup_label_ids]  , dim=-1) > tsa_threshold
-            loss_mask = torch.ones_like(label_ids, dtype=torch.float32) * (1 - larger_than_threshold.type(torch.float32))
-            sup_loss = torch.sum(sup_loss * loss_mask, dim=-1) / torch.max(torch.sum(loss_mask, dim=-1), torch_device_one())
+            loss_mask = torch.ones_like(label_ids, dtype=torch.float32) * (1 - larger_than_threshold.type(torch.float32)) # shape (batch_size, num_sentences)
+            # sup_loss before merger should be (batch_size, num_sentences)
+            sup_loss = torch.sum(sup_loss * loss_mask, dim=-1) / torch.max(torch.sum(loss_mask, dim=-1), torch_device_one()) # shape (batch_size)
         else:
-            sup_loss = torch.mean(sup_loss)
+            sup_loss = torch.mean(sup_loss) # shape(1)
+
+        sup_loss = torch.mean(sup_loss) # shape (1)
 
         # unsup loss
         if aug_unsup_input:
-            unsup_size = aug_unsup_input['tokens'].shape[0]
-            # ori
-            with torch.no_grad():
-                # Calculate logits for augmented unsup batch
-                aug_embedded_sentence = self.text_field_embedder(aug_unsup_input) # (batch_size, num_sentences, seq_len, embedding_size)
-                aug_sentence_mask = util.get_text_field_mask(aug_unsup_input) # (batch_size, num_sentences, seq_len)
-                aug_encoded_sentence = self.sentence_encoder(aug_embedded_sentence, aug_sentence_mask) # (batch_size, num_sentences, embedding_size)
+            global_step += 1
+            # print('Global step:', global_step)
+            final_unsup_loss = 0.0
+            for step in range(len(ori_unsup_input)):
+                ori_unsup_data = ori_unsup_input[step]
+                aug_unsup_data = aug_unsup_input[step]
 
-                aug_logits = self.classifier_feedforward(aug_encoded_sentence) # (batch_size, num_sentences, num_labels(2))
-                aug_logits = aug_logits.squeeze(-1) # Actually doesnt do anything (batch_size, num_sentences, num_labels)
-                aug_prob   = F.log_softmax(aug_logits, dim=-1)    # KLdiv target
+                unsup_size = aug_unsup_data['tokens'].shape[0]
+                # ori
+                with torch.no_grad():
+                    # Calculate logits for augmented unsup batch
+                    aug_embedded_sentence = self.text_field_embedder(aug_unsup_data) # (batch_size, num_sentences, seq_len, embedding_size)
+                    aug_sentence_mask = util.get_text_field_mask(aug_unsup_data) # (batch_size, num_sentences, seq_len)
+                    aug_encoded_sentence = self.sentence_encoder(aug_embedded_sentence, aug_sentence_mask) # (batch_size, num_sentences, embedding_size)
 
-                # Calculate logits for original unsup batch
-                # ori_logits = model(ori_input_ids, ori_segment_ids, ori_input_mask)
-                ori_embedded_sentence = self.text_field_embedder(ori_unsup_input) # (batch_size, num_sentences, seq_len, embedding_size)
-                ori_sentence_mask = util.get_text_field_mask(ori_unsup_input) # (batch_size, num_sentences, seq_len)
-                ori_encoded_sentence = self.sentence_encoder(ori_embedded_sentence, ori_sentence_mask) # (batch_size, num_sentences, embedding_size)
+                    aug_logits = self.classifier_feedforward(aug_encoded_sentence) # (batch_size, num_sentences, num_labels(2))
+                    aug_logits = aug_logits.squeeze(-1) # Actually doesnt do anything (batch_size, num_sentences, num_labels)
+                    # aug_prob   = F.log_softmax(aug_logits, dim=-1)    # KLdiv target
 
-                ori_logits = self.classifier_feedforward(ori_encoded_sentence) # (batch_size, num_sentences, num_labels(2))
-                ori_logits = ori_logits.squeeze(-1) # Actually doesnt do anything (batch_size, num_sentences, num_labels)
+                    # Calculate logits for original unsup batch
+                    # ori_logits = model(ori_input_ids, ori_segment_ids, ori_input_mask)
+                    ori_embedded_sentence = self.text_field_embedder(ori_unsup_data) # (batch_size, num_sentences, seq_len, embedding_size)
+                    ori_sentence_mask = util.get_text_field_mask(ori_unsup_data) # (batch_size, num_sentences, seq_len)
+                    ori_encoded_sentence = self.sentence_encoder(ori_embedded_sentence, ori_sentence_mask) # (batch_size, num_sentences, embedding_size)
+
+                    ori_logits = self.classifier_feedforward(ori_encoded_sentence) # (batch_size, num_sentences, num_labels(2))
+                    ori_logits = ori_logits.squeeze(-1) # Actually doesnt do anything (batch_size, num_sentences, num_labels)
+                    # ori_prob   = F.softmax(ori_logits, dim=-1)    # KLdiv target
+                    # ori_log_prob = F.log_softmax(ori_logits, dim=-1)
+                    
+                    # # confidence-based masking
+                    # if cfg.uda_confidence_thresh != -1: # == -1 for now
+                    #     unsup_loss_mask = torch.max(ori_prob, dim=-1)[0] > cfg.uda_confidence_thresh
+                    #     unsup_loss_mask = unsup_loss_mask.type(torch.float32)
+                    # else:
+                    #     unsup_loss_mask = torch.ones((unsup_size, 1), dtype=torch.float32)
+                    # unsup_loss_mask = unsup_loss_mask.to(_get_device())
+
+                # aug
+                # softmax temperature controlling
+                uda_softmax_temp = cfg.uda_softmax_temp if cfg.uda_softmax_temp > 0 else 1.
+                aug_prob = F.log_softmax(aug_logits / uda_softmax_temp, dim=-1)
+
+                # ori
                 ori_prob   = F.softmax(ori_logits, dim=-1)    # KLdiv target
-                # ori_log_prob = F.log_softmax(ori_logits, dim=-1)
-                
+
                 # confidence-based masking
                 if cfg.uda_confidence_thresh != -1: # == -1 for now
                     unsup_loss_mask = torch.max(ori_prob, dim=-1)[0] > cfg.uda_confidence_thresh
                     unsup_loss_mask = unsup_loss_mask.type(torch.float32)
                 else:
-                    unsup_loss_mask = torch.ones((unsup_size, 1), dtype=torch.float32)
+                    unsup_loss_mask = torch.ones((unsup_size, 1), dtype=torch.float32) # shape (unsup_size, 1)
                 unsup_loss_mask = unsup_loss_mask.to(_get_device())
 
-            # aug
-            # softmax temperature controlling
-            
-            uda_softmax_temp = cfg.uda_softmax_temp if cfg.uda_softmax_temp > 0 else 1.
+                # KLdiv loss
+                """
+                    nn.KLDivLoss (kl_div)
+                    input : log_prob (log_softmax)
+                    target : prob    (softmax)
+                    https://pytorch.org/docs/stable/nn.html
+                    unsup_loss is divied by number of unsup_loss_mask
+                    it is different from the google UDA official
+                    The official unsup_loss is divided by total
+                    https://github.com/google-research/uda/blob/master/text/uda.py#L175
+                """
+                unsup_loss = torch.sum(unsup_criterion(aug_prob, ori_prob), dim=-1) # shape (batch_size, num_sentences)
+                unsup_loss = torch.sum(unsup_loss * unsup_loss_mask, dim=-1) / torch.max(torch.sum(unsup_loss_mask, dim=-1), torch_device_one()) # shape (batch_size)
+                unsup_loss = torch.mean(unsup_loss) # shape 1
 
-            # KLdiv loss
-            """
-                nn.KLDivLoss (kl_div)
-                input : log_prob (log_softmax)
-                target : prob    (softmax)
-                https://pytorch.org/docs/stable/nn.html
-                unsup_loss is divied by number of unsup_loss_mask
-                it is different from the google UDA official
-                The official unsup_loss is divided by total
-                https://github.com/google-research/uda/blob/master/text/uda.py#L175
-            """
-            unsup_loss = torch.sum(unsup_criterion(aug_prob, ori_prob), dim=-1)
-            unsup_loss = torch.sum(unsup_loss * unsup_loss_mask, dim=-1) / torch.max(torch.sum(unsup_loss_mask, dim=-1), torch_device_one())
-            unsup_loss = torch.mean(unsup_loss)
+                final_unsup_loss += unsup_loss
 
-            final_loss = sup_loss + cfg.uda_coeff * unsup_loss
+            final_unsup_loss = final_unsup_loss / len(ori_unsup_input)
+            final_loss = sup_loss + cfg.uda_coeff * final_unsup_loss
 
             return final_loss, sup_loss, unsup_loss
         return sup_loss, None, None
@@ -443,8 +601,18 @@ class BaselineModel(Model):
     def forward(self,
                 sentences: Dict[str, torch.LongTensor],
                 labels: torch.LongTensor = None,
-                ori_unsup_sentences: Dict[str, torch.LongTensor] = None,
-                aug_unsup_sentences: Dict[str, torch.LongTensor] = None) -> Dict[str, torch.Tensor]:
+                ori_unsup_sentences_0 = None,
+                aug_unsup_sentences_0 = None,
+                ori_unsup_sentences_1 = None,
+                aug_unsup_sentences_1 = None,
+                ori_unsup_sentences_2 = None,
+                aug_unsup_sentences_2 = None,
+                ori_unsup_sentences_3 = None,
+                aug_unsup_sentences_3 = None,
+                ori_unsup_sentences_4 = None,
+                aug_unsup_sentences_4 = None,
+                ori_unsup_sentences_5 = None,
+                aug_unsup_sentences_5 = None) -> Dict[str, torch.Tensor]:
         # print('Sentences:', sentences['tokens'].size()) # (batch_size, num_sentences, seq_len)
         embedded_sentence = self.text_field_embedder(sentences)
         # print('Embedded size:', embedded_sentence.size()) # (batch_size, num_sentences, seq_len, embedding_size)
@@ -467,6 +635,11 @@ class BaselineModel(Model):
             # sup_batch = copy.deepcopy(sentences)
             # ori_unsup_batch = copy.deepcopy(sentences)
             # aug_unsup_batch = copy.deepcopy(sentences)
+            ori_unsup_sentences = None
+            aug_unsup_sentences = None
+            if ori_unsup_sentences_0:
+                ori_unsup_sentences = [ori_unsup_sentences_0, ori_unsup_sentences_1, ori_unsup_sentences_2, ori_unsup_sentences_3, ori_unsup_sentences_4, ori_unsup_sentences_5]
+                aug_unsup_sentences = [aug_unsup_sentences_0, aug_unsup_sentences_1, aug_unsup_sentences_2, aug_unsup_sentences_3, aug_unsup_sentences_4, aug_unsup_sentences_5]
             loss, _, _ = self.get_loss(sentences, labels, ori_unsup_sentences, aug_unsup_sentences, 0) # (sup_batch, sup_batch_label, unsup_batch, global_step)
             # print('Loss get_loss function', loss)
             for metric in self.metrics.values():
@@ -581,12 +754,20 @@ labels = batch["labels"]
 
 # %%
 """Train"""
-# print('Parameters:', model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer)
-optimizer = optim.SGD([{'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[11].parameters(), 'lr': 0.001},
-                        {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[10].parameters(), 'lr': 0.00095},
+
+# BERT Adam
+optimizer = BertAdam([{'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[11].parameters(), 'lr': 2e-5},
+                        {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[10].parameters(), 'lr': 2e-5},
                         # {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[9].parameters(), 'lr': 0.0009},
                         # {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[8].parameters(), 'lr': 0.000855}
-                        ], lr=0.001)
+                        ], lr=1e-4)
+
+# print('Parameters:', model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer)
+# optimizer = optim.RMSprop([{'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[11].parameters(), 'lr': 2e-5},
+#                         {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[10].parameters(), 'lr': 2e-5},
+#                         # {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[9].parameters(), 'lr': 0.0009},
+#                         # {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[8].parameters(), 'lr': 0.000855}
+#                         ], lr=1e-4)
 # Default
 # optimizer = optim.SGD(model.parameters(), lr=0.001)
 
@@ -602,7 +783,8 @@ trainer = Trainer(
     train_dataset=train_dataset,
     validation_dataset=validation_dataset,
     patience=3,
-    num_epochs=50,
+    validation_metric='+accuracy',
+    num_epochs=cfg.num_epochs,
     cuda_device=[0, 1]
 )
 
@@ -631,6 +813,10 @@ def read_json(file_path):
         with open(file_path, 'r') as fp:
             ls = [json.loads(line) for line in fp]
         return ls
+
+# %%
+# print('After Training')
+# print('Model steps:', global_step)
 
 # %%
 test_list = read_json(cached_path(VALIDATION_PATH))

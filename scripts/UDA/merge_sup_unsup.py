@@ -46,6 +46,8 @@ with open(sup_train_data_path, 'r') as file:
         labels = example['labels']
         if ratio_0_and_1(labels) < 1/10: # 1/10 has 80 abstracts that has 0 claim
             count_ratio_smaller += 1
+            sup_train_data_sentences.append(sents)
+            sup_train_data_labels.append(labels)
         else:
             sup_train_data_sentences.append(sents)
             sup_train_data_labels.append(labels)

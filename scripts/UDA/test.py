@@ -1,5 +1,40 @@
 # %%
 import torch
+
+loss = 0.0
+for i in range(3):
+    loss += torch.Tensor([1.0])
+print(loss/3)
+
+# %%
+import torch
+import torch.nn as nn
+
+# criterion = nn.CrossEntropyLoss(reduction='none', weight=torch.tensor([1.0, 1.0]))
+
+# Loss function
+def multiple_target_CrossEntropyLoss(logits, labels):
+    output_loss = []
+    for i in range(logits.shape[0]): # batch_size
+        smaller_loss = nn.CrossEntropyLoss(weight=torch.tensor([1.0,1.0]), reduction='none')(logits[i, :, :], labels[i, :])
+        smaller_loss = smaller_loss.unsqueeze(0)
+        output_loss.append(smaller_loss)
+        # loss = loss + nn.CrossEntropyLoss(weight=torch.tensor([1.0,1.0]).cuda())(logits[i, :, :], labels[i, :])
+    return torch.cat(output_loss, dim=0)
+
+# logits = torch.zeros((3, 2, 2), dtype=torch.float32)
+logits = torch.Tensor([[[0.3, 0.7], [0.3, 0.7]], [[0.3, 0.7], [0.3, 0.7]], [[0.7, 0.3], [0.7, 0.3]]]).type(torch.float32)
+labels = torch.zeros((3, 2), dtype=torch.long)
+res = multiple_target_CrossEntropyLoss(logits, labels)
+print(res.shape)
+
+# %%
+for i in range(3):
+    pass
+print(i)
+
+# %%
+import torch
 import torch.nn as nn
 
 criterion = nn.KLDivLoss(reduction='none')
