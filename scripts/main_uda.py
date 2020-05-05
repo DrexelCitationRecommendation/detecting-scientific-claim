@@ -113,12 +113,12 @@ cfg = Namespace(
     unsup_to_sup_ratio = 6,
 
     uda_coeff = 1,
-    tsa = 'linear_schedule',
+    tsa = 'log_schedule',
     # tsa = None,
     # uda_softmax_temp = 0.85,
     uda_softmax_temp = 1.,
-    # uda_confidence_thresh = 0.45,
-    uda_confidence_thresh = -1,
+    uda_confidence_thresh = 0.45,
+    # uda_confidence_thresh = -1,
 )
 
 # Hard code
@@ -453,6 +453,10 @@ def multiple_target_CrossEntropyLoss(logits, labels):
     return torch.cat(losses)
 
 # %%
+min_unsup_loss = 100.0
+decrease_or_no = True
+
+# %%
 """Prepare the model"""
 class BaselineModel(Model):
     def __init__(self,
@@ -478,6 +482,8 @@ class BaselineModel(Model):
     # ori_unsup_input and aug_unsup_input are List
     def get_loss(self, sup_batch, sup_batch_labels, ori_unsup_input = None, aug_unsup_input = None, global_steps = 0):
         global global_step
+        global min_unsup_loss
+        global decrease_or_no
         # logits -> prob(softmax) -> log_prob(log_softmax)
 
         # batch
@@ -593,6 +599,20 @@ class BaselineModel(Model):
                 final_unsup_loss += unsup_loss
 
             final_unsup_loss = final_unsup_loss / len(ori_unsup_input)
+            if final_unsup_loss < min_unsup_loss:
+                min_unsup_loss = final_unsup_loss
+                if decrease_or_no == False:
+                    decrease_or_no = True
+                    print('Start to decrease')
+            elif final_unsup_loss > min_unsup_loss:
+                if decrease_or_no == True:
+                    decrease_or_no = False
+                    print('Start to increase')
+            if global_step % 100 == 0:
+                print('Currently decrease_or_no', decrease_or_no)
+                print('Current unsup loss', final_unsup_loss)
+                print('Min unsup loss', min_unsup_loss)
+
             final_loss = sup_loss + cfg.uda_coeff * final_unsup_loss
 
             return final_loss, sup_loss, unsup_loss
@@ -681,7 +701,7 @@ bert_embedder = PretrainedBertEmbedder(
 )
 
 #print('Bert Model:', bert_embedder.bert_model.encoder.layer[11])
-for param in bert_embedder.bert_model.encoder.layer[8:].parameters():
+for param in bert_embedder.bert_model.encoder.layer[10:].parameters():
     param.requires_grad = True
 
 
@@ -775,6 +795,7 @@ model = model.cuda()
 
 print('Start training')
 
+# Old trainer
 trainer = Trainer(
     model=model,
     optimizer=optimizer,
@@ -782,11 +803,26 @@ trainer = Trainer(
     validation_iterator=iterator,
     train_dataset=train_dataset,
     validation_dataset=validation_dataset,
-    patience=3,
-    validation_metric='+accuracy',
+    patience=5,
+    validation_metric='-loss',
     num_epochs=cfg.num_epochs,
     cuda_device=[0, 1]
 )
+
+# New trainer
+# trainer = Trainer(
+#     model=model,
+#     optimizer=optimizer,
+#     iterator=iterator,
+#     validation_iterator=iterator,
+#     train_dataset=train_dataset,
+#     validation_dataset=validation_dataset,
+#     validation_metric='-loss',
+#     num_epochs=cfg.num_epochs,
+#     serialization_dir = './saved_models/',
+#     num_serialized_models_to_keep = 5,
+#     cuda_device=[0, 1]
+# )
 
 # %%
 metrics = trainer.train()
@@ -863,7 +899,7 @@ print('Test score:', precision_recall_fscore_support(y_true, y_pred, average='bi
 # Save model
 with open(f"./finetune_model.th", "wb") as f:
     torch.save(model.state_dict(), f)
-vocab.save_to_files(f"./finetune_vocab.txt")
+vocab.save_to_files(f"./finetune_vocab")
 
 # Save y_true and y_pred
 df = pd.DataFrame()

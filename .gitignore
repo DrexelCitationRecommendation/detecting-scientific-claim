@@ -137,3 +137,29 @@ wiki.en.bin
 labels.json
 scripts/UDA/new_train.txt
 scripts/UDA/train.txt
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_disch_100000/vocab.txt
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_disch_100000/pytorch_model.bin
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_disch_100000/model.ckpt-100000.meta
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_disch_100000/model.ckpt-100000.index
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_disch_100000/model.ckpt-100000.data-00000-of-00001
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_disch_100000/graph.pbtxt
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_disch_100000/bert_config.json
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_disch_100000.tar.gz
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_all_notes_150000/weights.tar.gz
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_all_notes_150000/vocab.txt
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_all_notes_150000/pytorch_model.bin
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_all_notes_150000/model.ckpt-150000.meta
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_all_notes_150000/model.ckpt-150000.index
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_all_notes_150000/model.ckpt-150000.data-00000-of-00001
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_all_notes_150000/graph.pbtxt
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_all_notes_150000/bert_config.json
+scripts/Clinical BERT/pretrained_bert_tf/biobert_pretrain_output_all_notes_150000.tar.gz
+scripts/Clinical BERT/pretrained_bert_tf/bert_pretrain_output_disch_100000.tar.gz
+scripts/Clinical BERT/pretrained_bert_tf/bert_pretrain_output_all_notes_150000.tar.gz
+scripts/Clinical BERT/pretrained_bert_tf.tar.gz
+scripts/Bio BERT/biobert_v1.0_pubmed/vocab.txt
+scripts/Bio BERT/biobert_v1.0_pubmed/biobert_model.ckpt.meta
+scripts/Bio BERT/biobert_v1.0_pubmed/biobert_model.ckpt.index
+scripts/Bio BERT/biobert_v1.0_pubmed/biobert_model.ckpt.data-00000-of-00001
+scripts/Bio BERT/biobert_v1.0_pubmed/bert_config.json
+scripts/Bio BERT/biobert_v1.0_pubmed.tar.gz

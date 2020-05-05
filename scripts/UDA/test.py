@@ -1,5 +1,15 @@
 # %%
 import torch
+import torch.nn as nn
+
+a = torch.Tensor([1.3, 1.8, 2.2])
+b = nn.Softmax()
+print('Before temperature control', b(a))
+c = a / 0.85
+print('After temperature control ', b(c))
+
+# %%
+import torch
 
 loss = 0.0
 for i in range(3):

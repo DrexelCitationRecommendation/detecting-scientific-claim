@@ -1,5 +1,5 @@
 """
-Transfer learning for claim prediction using Discourse CRF model
+Fine-tuning for claim prediction using contextual embedding
 """
 # %%
 import sys
@@ -50,20 +50,13 @@ from allennlp.modules import Seq2VecEncoder, TimeDistributed, TextFieldEmbedder,
 from torch.nn.modules.linear import Linear
 
 # %%
-'''Import custom trainer'''
-from custom_trainer import MyCustomTrainer
-
-# %%
-EMBEDDING_DIM = 300
-# TRAIN_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/train_labels.json'
-TRAIN_PATH = './combined_back_translate_train_labels.json'
+TRAIN_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/train_labels.json'
+# TRAIN_PATH = './combined_back_translate_train_labels.json'
 VALIDATION_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/validation_labels.json'
 TEST_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/test_labels.json'
-# DISCOURSE_MODEL_PATH = './output_crf_pubmed_rct_glove/model.tar.gz'
-# archive = load_archive(DISCOURSE_MODEL_PATH)
-# discourse_predictor = Predictor.from_archive(archive, 'discourse_crf_predictor')
 
 # %%
+# Dataset Reader
 class ClaimAnnotationReaderJSON(DatasetReader):
     """
     Reading annotation dataset in the following JSON format:
@@ -135,6 +128,7 @@ iterator = BasicIterator(batch_size=1)
 iterator.index_with(vocab)
 
 # %%
+# Cross-Entropy loss for multiple-sentence abstract
 def multiple_target_CrossEntropyLoss(logits, labels):
     loss = 0
     for i in range(logits.shape[0]):
@@ -167,22 +161,15 @@ class BaselineModel(Model):
     def forward(self,
                 sentences: Dict[str, torch.LongTensor],
                 labels: torch.LongTensor = None) -> Dict[str, torch.Tensor]:
-        # print('Sentences:', sentences['tokens'].size()) # (batch_size, num_sentences, seq_len)
         embedded_sentence = self.text_field_embedder(sentences)
-        # print('Embedded size:', embedded_sentence.size()) # (batch_size, num_sentences, seq_len, embedding_size)
         sentence_mask = util.get_text_field_mask(sentences)
-        # print('Sentence mask:', sentence_mask.size()) # (batch_size, num_sentences, seq_len)
         encoded_sentence = self.sentence_encoder(embedded_sentence, sentence_mask)
-        # print('Encoded sentence:', encoded_sentence.size()) # (batch_size, num_sentences, embedding_size)
 
         logits = self.classifier_feedforward(encoded_sentence) # (batch_size, num_sentences, num_labels(2))
-        logits = logits.squeeze(-1) # Actually doesnt do anything (batch_size, num_sentences, num_labels)
+        logits = logits.squeeze(-1)
 
         output_dict = {'logits': logits}
         if labels is not None:
-            # print("label shape:", labels.shape)
-            # print("logits shape:", logits.shape)
-            # loss = self.loss(logits, labels.squeeze(-1))
             loss = multiple_target_CrossEntropyLoss(logits, labels)
             for metric in self.metrics.values():
                 metric(logits, labels.squeeze(-1))
@@ -194,18 +181,10 @@ class BaselineModel(Model):
         """
         Coverts tag ids to actual tags.
         """
-        # for instance_labels in output_dict["logits"]:
-            # print('Instance labels:', instance_labels)
-        # output_dict["labels"] = [
-        #     [self.vocab.get_token_from_index(label, namespace='labels')
-        #          for label in instance_labels]
-        #         for instance_labels in output_dict["logits"]
-        # ]
         output_dict["labels"] = [
             [np.argmax(label.cpu().data.numpy()) for label in instance_labels]
                 for instance_labels in output_dict["logits"]
         ]
-        # print(output_dict["logits"])
         return output_dict
 
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
@@ -222,7 +201,6 @@ bert_embedder = PretrainedBertEmbedder(
     requires_grad=False
 )
 
-#print('Bert Model:', bert_embedder.bert_model.encoder.layer[11])
 for param in bert_embedder.bert_model.encoder.layer[8:].parameters():
     param.requires_grad = True
 
@@ -233,17 +211,13 @@ word_embeddings: TextFieldEmbedder = BasicTextFieldEmbedder(
 
 # %%
 BERT_DIM = word_embeddings.get_output_dim()
-print('Bert dim:', BERT_DIM)
 
 class BertSentencePooler(Seq2VecEncoder):
     def __init__(self, vocab):
         super().__init__(vocab)
-        # self.lstm = nn.LSTM(input_size=BERT_DIM, hidden_size=128, num_layers=1, dropout=0.2, bidirectional=True)
 
     def forward(self, embs:torch.tensor, mask:torch.tensor=None) -> torch.tensor:
         bert_out = embs[:, :, 0]
-        # print('Bert output shape:', embs.size())
-        # return self.lstm(bert_out)[0]
         return bert_out
     
     def get_output_dim(self) -> int:
@@ -252,7 +226,6 @@ class BertSentencePooler(Seq2VecEncoder):
 sentence_encoder = BertSentencePooler(vocab)
 
 # %%
-# classifier_feedforward = nn.Linear(256, 2)
 classifier_feedforward = nn.Linear(768,2)
 
 # %%
@@ -267,46 +240,19 @@ model = BaselineModel(
 """Basic sanity check"""
 batch = next(iter(iterator(train_dataset)))
 tokens = batch["sentences"]
-# print('Sentences:', tokens)
-# print('Tokens size:', tokens['tokens'].size())
 labels = batch["labels"]
-# print('Labels size:', labels.size())
 
 # %%
 import allennlp.nn.util as util
 
 mask = util.get_text_field_mask(tokens)
-# print('Text field mask:', mask)
-# print('Text field mask size:', mask.size())
 
 # %%
 embeddings = model.text_field_embedder(tokens)
-# print('Embedding size:', embeddings.size())
-
-# %%
-# state = model.sentence_encoder(embeddings, mask)
-
-# %%
-# logits = model.classifier_feedforward(state)
-# logits = logits.squeeze(-1)
-
-# %%
-# loss =  nn.NLLLoss()(logits.reshape(-1, 10), labels.reshape(-1, 10))
-#def multiple_target_CrossEntropyLoss(logits, labels):
-    # loss = 0
-    # for i in range(logits.shape[0]):
-        # loss = loss + nn.CrossEntropyLoss(weight=torch.tensor([1,3]))(logits[i, :, :], labels[i, :])
-    # return loss
-
-# %%
-# loss.backward()
-
-# %%
-# loss = model(**batch)["loss"]
 
 # %%
 """Train"""
-# print('Parameters:', model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer)
+# Custom SGD for each layer
 optimizer = optim.SGD([{'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[11].parameters(), 'lr': 0.001},
                         {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[10].parameters(), 'lr': 0.00095},
                         {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[9].parameters(), 'lr': 0.0009},
@@ -318,19 +264,6 @@ optimizer = optim.SGD([{'params': model.text_field_embedder.token_embedder_token
 model = model.cuda()
 
 print('Start training')
-
-# # Custom trainer
-# trainer = MyCustomTrainer(
-#     model=model,
-#     optimizer=optimizer,
-#     iterator=iterator,
-#     validation_iterator=iterator,
-#     train_dataset=train_dataset,
-#     validation_dataset=validation_dataset,
-#     patience=3,
-#     num_epochs=50,
-#     cuda_device=[0, 1]
-# )
 
 # Default trainer
 trainer = Trainer(
@@ -376,22 +309,13 @@ test_list = read_json(cached_path(VALIDATION_PATH))
 claim_predictor = ClaimCrfPredictor(model, dataset_reader=reader)
 y_pred, y_true = [], []
 for tst in validation_dataset:
-    # print('tst', tst)
     pred = claim_predictor.predict_instance(tst)
-    # print('Pred output:', pred)
     logits = torch.FloatTensor(pred['logits'])
-    # print(logits.shape)
-    # print('Logits output:', logits)
-#     best_paths = model.crf.viterbi_tags(torch.FloatTensor(pred['logits']).unsqueeze(0),
-#                                         torch.LongTensor(pred['mask']).unsqueeze(0))
     predicted_labels = pred['labels']
     y_pred.extend(predicted_labels)
     y_true.extend(tst['labels'])
-    # break
 y_true = np.array(y_true).astype(int)
 y_pred = np.array(y_pred).astype(int)
-# print('Y true:', y_true)
-# print('Y pred:', y_pred)
 print('Val score:', precision_recall_fscore_support(y_true, y_pred, average='binary'))
 # Save y_true and y_pred
 df = pd.DataFrame()
@@ -404,22 +328,13 @@ test_list = read_json(cached_path(TEST_PATH))
 claim_predictor = ClaimCrfPredictor(model, dataset_reader=reader)
 y_pred, y_true = [], []
 for tst in test_dataset:
-    # print('tst', tst)
     pred = claim_predictor.predict_instance(tst)
-    # print('Pred output:', pred)
     logits = torch.FloatTensor(pred['logits'])
-    # print(logits.shape)
-    # print('Logits output:', logits)
-#     best_paths = model.crf.viterbi_tags(torch.FloatTensor(pred['logits']).unsqueeze(0),
-#                                         torch.LongTensor(pred['mask']).unsqueeze(0))
     predicted_labels = pred['labels']
     y_pred.extend(predicted_labels)
     y_true.extend(tst['labels'])
-    # break
 y_true = np.array(y_true).astype(int)
 y_pred = np.array(y_pred).astype(int)
-# print('Y true:', y_true)
-# print('Y pred:', y_pred)
 print('Test score:', precision_recall_fscore_support(y_true, y_pred, average='binary'))
 
 # Save model

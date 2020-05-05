@@ -50,10 +50,6 @@ from allennlp.modules import Seq2VecEncoder, TimeDistributed, TextFieldEmbedder,
 from torch.nn.modules.linear import Linear
 
 # %%
-'''Import custom trainer'''
-from custom_trainer import MyCustomTrainer
-
-# %%
 EMBEDDING_DIM = 300
 # TRAIN_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/train_labels.json'
 TRAIN_PATH = './combined_back_translate_train_labels.json'
@@ -307,7 +303,7 @@ embeddings = model.text_field_embedder(tokens)
 # %%
 """Train"""
 # print('Parameters:', model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer)
-optimizer = optim.SGD([{'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[11].parameters(), 'lr': 0.001},
+optimizer = optim.RMSprop([{'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[11].parameters(), 'lr': 0.001},
                         {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[10].parameters(), 'lr': 0.00095},
                         {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[9].parameters(), 'lr': 0.0009},
                         {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[8].parameters(), 'lr': 0.000855}
@@ -340,8 +336,9 @@ trainer = Trainer(
     validation_iterator=iterator,
     train_dataset=train_dataset,
     validation_dataset=validation_dataset,
-    patience=3,
-    num_epochs=50,
+    num_epochs=5,
+    serialization_dir = './saved_models/',
+    num_serialized_models_to_keep = 2,
     cuda_device=[0, 1]
 )
 
@@ -425,7 +422,7 @@ print('Test score:', precision_recall_fscore_support(y_true, y_pred, average='bi
 # Save model
 with open(f"./finetune_model.th", "wb") as f:
     torch.save(model.state_dict(), f)
-vocab.save_to_files(f"./finetune_vocab")
+vocab.save_to_files(f"./finetune_vocab.txt")
 
 # Save y_true and y_pred
 df = pd.DataFrame()
