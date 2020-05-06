@@ -4,7 +4,6 @@ Fine-tuning for claim prediction using contextual embedding
 # %%
 import sys
 sys.path.insert(0, '..')
-sys.path.insert(0, '/Users/kchu/Documents/Projects/Senior Project/Claim Extraction/detecting-scientific-claim-master/')
 
 from typing import Iterator, List, Dict, Optional
 import os
@@ -50,10 +49,20 @@ from allennlp.modules import Seq2VecEncoder, TimeDistributed, TextFieldEmbedder,
 from torch.nn.modules.linear import Linear
 
 # %%
+# Variables
 TRAIN_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/train_labels.json'
 # TRAIN_PATH = './combined_back_translate_train_labels.json'
 VALIDATION_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/validation_labels.json'
 TEST_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/test_labels.json'
+vocab_path = "./biobert_v1.1_pubmed/vocab.txt"
+pretrained_model_weight_path = "./biobert_v1.1_pubmed/weights.tar.gz"
+num_patience = 3
+num_epochs = 50
+cuda_devices = [0, 1]
+y_true_pred_val_path = 'biobert_y_true_pred_val.csv'
+y_true_pred_test_path = 'biobert_y_true_pred_test.csv'
+
+
 
 # %%
 # Dataset Reader
@@ -101,7 +110,7 @@ class ClaimAnnotationReaderJSON(DatasetReader):
 
 # %%
 token_indexer = PretrainedBertIndexer(
-    pretrained_model="./biobert_v1.1_pubmed/vocab.txt",
+    pretrained_model=vocab_path,
     do_lowercase=True,
  )
 
@@ -114,16 +123,16 @@ reader = ClaimAnnotationReaderJSON(
 train_dataset = reader.read(TRAIN_PATH)
 validation_dataset = reader.read(VALIDATION_PATH)
 test_dataset = reader.read(TEST_PATH)
+
 # %%
 vocab = Vocabulary()
-
 vocab._token_to_index['labels'] = {'0': 0, '1': 1}
 
 # %%
 """Prepare iterator"""
 from allennlp.data.iterators import BasicIterator
 
-iterator = BasicIterator(batch_size=1)
+iterator = BasicIterator(batch_size=8)
 
 iterator.index_with(vocab)
 
@@ -196,7 +205,7 @@ from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
 from allennlp.modules.token_embedders.bert_token_embedder import PretrainedBertEmbedder
 
 bert_embedder = PretrainedBertEmbedder(
-    pretrained_model = "./biobert_v1.1_pubmed/weights.tar.gz",
+    pretrained_model = pretrained_model_weight_path,
     top_layer_only=True,
     requires_grad=False
 )
@@ -273,9 +282,9 @@ trainer = Trainer(
     validation_iterator=iterator,
     train_dataset=train_dataset,
     validation_dataset=validation_dataset,
-    patience=3,
-    num_epochs=50,
-    cuda_device=[0, 1]
+    patience=num_patience,
+    num_epochs=num_epochs,
+    cuda_device=cuda_devices
 )
 
 # %%
@@ -283,7 +292,6 @@ metrics = trainer.train()
 
 # %%
 """Testing"""
-
 class ClaimCrfPredictor(Predictor):
     """
     Predictor wrapper for the AcademicPaperClassifier
@@ -321,7 +329,7 @@ print('Val score:', precision_recall_fscore_support(y_true, y_pred, average='bin
 df = pd.DataFrame()
 df['y_true'] = y_true
 df['y_pred'] = y_pred
-df.to_csv('biobert_y_true_pred_val.csv', index=False)
+df.to_csv(y_true_pred_val_path, index=False)
 
 # %%
 test_list = read_json(cached_path(TEST_PATH))
@@ -346,4 +354,4 @@ vocab.save_to_files(f"./finetune_vocab")
 df = pd.DataFrame()
 df['y_true'] = y_true
 df['y_pred'] = y_pred
-df.to_csv('biobert_y_true_pred_test.csv', index=False)
+df.to_csv(y_true_pred_test_path, index=False)
