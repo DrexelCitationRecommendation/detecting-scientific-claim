@@ -163,3 +163,10 @@ scripts/Bio BERT/biobert_v1.0_pubmed/biobert_model.ckpt.index
 scripts/Bio BERT/biobert_v1.0_pubmed/biobert_model.ckpt.data-00000-of-00001
 scripts/Bio BERT/biobert_v1.0_pubmed/bert_config.json
 scripts/Bio BERT/biobert_v1.0_pubmed.tar.gz
+scripts/biobert_v1.1_pubmed/bert_config.json
+scripts/biobert_v1.1_pubmed/model.ckpt-1000000.data-00000-of-00001
+scripts/biobert_v1.1_pubmed/model.ckpt-1000000.index
+scripts/biobert_v1.1_pubmed/model.ckpt-1000000.meta
+scripts/biobert_v1.1_pubmed/pytorch_model.bin
+scripts/biobert_v1.1_pubmed/vocab.txt
+scripts/biobert_v1.1_pubmed/weights.tar.gz

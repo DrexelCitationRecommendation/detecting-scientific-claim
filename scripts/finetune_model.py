@@ -48,6 +48,8 @@ from allennlp.training.learning_rate_schedulers import LearningRateScheduler
 from allennlp.modules import Seq2VecEncoder, TimeDistributed, TextFieldEmbedder, ConditionalRandomField, FeedForward
 from torch.nn.modules.linear import Linear
 
+from optim import BertAdam
+
 # %%
 # Variables
 TRAIN_PATH = 'https://s3-us-west-2.amazonaws.com/pubmed-rct/train_labels.json'
@@ -210,7 +212,9 @@ bert_embedder = PretrainedBertEmbedder(
     requires_grad=False
 )
 
-for param in bert_embedder.bert_model.encoder.layer[8:].parameters():
+# for param in bert_embedder.bert_model.encoder.layer[8:].parameters():
+#     param.requires_grad = True
+for param in bert_embedder.bert_model.encoder.layer[:].parameters():
     param.requires_grad = True
 
 
@@ -262,11 +266,13 @@ embeddings = model.text_field_embedder(tokens)
 # %%
 """Train"""
 # Custom SGD for each layer
-optimizer = optim.SGD([{'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[11].parameters(), 'lr': 0.001},
-                        {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[10].parameters(), 'lr': 0.00095},
-                        {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[9].parameters(), 'lr': 0.0009},
-                        {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[8].parameters(), 'lr': 0.000855}
-                        ], lr=0.001)
+# optimizer = optim.SGD([{'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[11].parameters(), 'lr': 0.001},
+#                         {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[10].parameters(), 'lr': 0.00095},
+#                         {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[9].parameters(), 'lr': 0.0009},
+#                         {'params': model.text_field_embedder.token_embedder_tokens.bert_model.encoder.layer[8].parameters(), 'lr': 0.000855}
+#                         ], lr=0.001)
+# BertAdam
+optimizer = BertAdam(model.parameters(), lr=2e-5)
 # Default
 # optimizer = optim.SGD(model.parameters(), lr=0.001)
 
